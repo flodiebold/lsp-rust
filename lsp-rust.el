@@ -109,12 +109,12 @@ The explaination comes from 'rustc --explain=ID'."
 (defun lsp-rust--get-root ()
   (let (dir)
     (unless
-	(ignore-errors
-	  (let* ((output (shell-command-to-string "cargo locate-project"))
-		 (js (json-read-from-string output)))
-	    (setq dir (cdr (assq 'root js)))))
+        (ignore-errors
+          (let* ((output (shell-command-to-string "cargo metadata --no-deps --format-version 1"))
+                 (js (json-read-from-string output)))
+            (setq dir (cdr (assq 'workspace_root js)))))
       (error "Couldn't find root for project at %s" default-directory))
-    (file-name-directory dir)))
+    dir))
 
 (define-inline lsp-rust--as-percent (fraction)
   (inline-quote (format "%d%%" (round (* ,fraction 100)))))
