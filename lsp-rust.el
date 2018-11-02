@@ -33,11 +33,17 @@
 (require 'font-lock)
 (require 'xref)
 (require 'dash)
+(require 'ht)
 (require 'markdown-mode)
 
+(defvar lsp-rust--use-rust-analyzer nil)
 (defvar lsp-rust--config-options (make-hash-table))
 (defvar lsp-rust--diag-counters (make-hash-table))
 (defvar lsp-rust--running-progress (make-hash-table))
+
+(defcustom lsp-rust-rust-analyzer-command '("ra_lsp_server")
+  ""
+  :type '(repeat (string)))
 
 (defcustom lsp-rust-rls-command '("rls")
   "The command used to launch the RLS.
@@ -97,14 +103,17 @@ The explaination comes from 'rustc --explain=ID'."
 
 (defun lsp-rust--rls-command ()
   "Return the command used to start the RLS for defining the LSP Rust client."
-  (or lsp-rust-rls-command
-      (-when-let (rls-root (getenv "RLS_ROOT"))
-        `("cargo" "+nightly" "run" "--quiet"
-          ,(concat "--manifest-path="
-                   (concat
-                    (file-name-as-directory (expand-file-name rls-root))
-                    "Cargo.toml"))
-          "--release"))))
+  (hack-dir-local-variables-non-file-buffer) ;; FIXME find some way of being able to set this via dir-locals that's not this?
+  (if lsp-rust--use-rust-analyzer
+      lsp-rust-rust-analyzer-command
+      (or lsp-rust-rls-command
+          (-when-let (rls-root (getenv "RLS_ROOT"))
+            `("cargo" "+nightly" "run" "--quiet"
+              ,(concat "--manifest-path="
+                       (concat
+                        (file-name-as-directory (expand-file-name rls-root))
+                        "Cargo.toml"))
+              "--release")))))
 
 (defun lsp-rust--get-root ()
   (let (dir)
@@ -146,11 +155,32 @@ The explaination comes from 'rustc --explain=ID'."
     ("rustDocument/diagnosticsEnd" .
      (lambda (w _p)
        (when (<= (cl-decf (gethash w lsp-rust--diag-counters 0)) 0)
-	 (setq lsp-status nil))))
+         (setq lsp-status nil))))
     ("rustDocument/beginBuild" .
      (lambda (w _p)
        (cl-incf (gethash w lsp-rust--diag-counters 0))
        (setq lsp-status "(building)")))))
+
+(defconst lsp-rust--action-handlers
+  '(("ra-lsp.applySourceChange" .
+     (lambda (p) (lsp-rust--handle-ra-lsp-apply-source-change p)))))
+
+(defun lsp-rust--apply-text-document-edit (edit)
+  "Like lsp--apply-text-document-edit, but it allows nil version."
+  (let* ((ident (gethash "textDocument" edit))
+         (filename (lsp--uri-to-path (gethash "uri" ident)))
+         (version (gethash "version" ident)))
+    (with-current-buffer (find-file-noselect filename)
+      (message "version %s vs %s" version (lsp--cur-file-version))
+      (when (or (not version) (= version (lsp--cur-file-version)))
+        (message "applying edits")
+        (lsp--apply-text-edits (gethash "edits" edit))))))
+
+(defun lsp-rust--handle-ra-lsp-apply-source-change (p)
+  ;; TODO fileSystemEdits
+  ;; TODO cursorPosition
+  (--each (ht-get (car (ht-get p "arguments")) "sourceFileEdits")
+    (lsp-rust--apply-text-document-edit it)))
 
 (defun lsp-rust--render-string (str)
   (condition-case nil
@@ -163,7 +193,9 @@ The explaination comes from 'rustc --explain=ID'."
 
 (defun lsp-rust--initialize-client (client)
   (mapcar #'(lambda (p) (lsp-client-on-notification client (car p) (cdr p)))
-	  lsp-rust--handlers)
+          lsp-rust--handlers)
+  (mapcar #'(lambda (p) (lsp-client-on-action client (car p) (cdr p)))
+	        lsp-rust--action-handlers)
   (lsp-provide-marked-string-renderer client "rust" #'lsp-rust--render-string))
 
 (lsp-define-stdio-client lsp-rust "rust" #'lsp-rust--get-root nil
