@@ -27,7 +27,8 @@
 
 ;;; Code:
 
-(require 'lsp-mode)
+;; (require 'lsp-mode)
+(require 'lsp)
 (require 'cl-lib)
 (require 'json)
 (require 'font-lock)
@@ -103,17 +104,18 @@ The explaination comes from 'rustc --explain=ID'."
 
 (defun lsp-rust--rls-command ()
   "Return the command used to start the RLS for defining the LSP Rust client."
-  (hack-dir-local-variables-non-file-buffer) ;; FIXME find some way of being able to set this via dir-locals that's not this?
-  (if lsp-rust--use-rust-analyzer
-      lsp-rust-rust-analyzer-command
-      (or lsp-rust-rls-command
-          (-when-let (rls-root (getenv "RLS_ROOT"))
-            `("cargo" "+nightly" "run" "--quiet"
-              ,(concat "--manifest-path="
-                       (concat
-                        (file-name-as-directory (expand-file-name rls-root))
-                        "Cargo.toml"))
-              "--release")))))
+  (or lsp-rust-rls-command
+      (-when-let (rls-root (getenv "RLS_ROOT"))
+        `("cargo" "+nightly" "run" "--quiet"
+          ,(concat "--manifest-path="
+                   (concat
+                    (file-name-as-directory (expand-file-name rls-root))
+                    "Cargo.toml"))
+          "--release"))))
+
+(defun lsp-rust--ra-command ()
+  "Return the command used to start the RA for defining the LSP Rust client."
+  lsp-rust-rust-analyzer-command)
 
 (defun lsp-rust--get-root ()
   (let (dir)
@@ -161,7 +163,10 @@ The explaination comes from 'rustc --explain=ID'."
        (cl-incf (gethash w lsp-rust--diag-counters 0))
        (setq lsp-status "(building)")))))
 
-(defconst lsp-rust--action-handlers
+(defconst lsp-rust--ra-notification-handlers
+  '(("m/publishDecorations" . (lambda (_w _p)))))
+
+(defconst lsp-rust--ra-action-handlers
   '(("ra-lsp.applySourceChange" .
      (lambda (p) (lsp-rust--handle-ra-lsp-apply-source-change p)))))
 
@@ -198,9 +203,25 @@ The explaination comes from 'rustc --explain=ID'."
 	        lsp-rust--action-handlers)
   (lsp-provide-marked-string-renderer client "rust" #'lsp-rust--render-string))
 
-(lsp-define-stdio-client lsp-rust "rust" #'lsp-rust--get-root nil
-			 :command-fn #'lsp-rust--rls-command
-			 :initialize #'lsp-rust--initialize-client)
+;; (lsp-define-stdio-client lsp-rust "rust" #'lsp-rust--get-root nil
+;; 			 :command-fn #'lsp-rust--rls-command
+;; 			 :initialize #'lsp-rust--initialize-client)
+
+(lsp-register-client
+ (make-lsp-client
+  :new-connection (lsp-stdio-connection #'lsp-rust--rls-command)
+  :notification-handlers (ht<-alist lsp-rust--handlers)
+  :major-modes '(rust-mode toml-mode)
+  :server-id 'rust-rls))
+
+(lsp-register-client
+ (make-lsp-client
+  :new-connection (lsp-stdio-connection #'lsp-rust--ra-command)
+  :notification-handlers (ht<-alist lsp-rust--ra-notification-handlers)
+  :action-handlers (ht<-alist lsp-rust--ra-action-handlers)
+  :major-modes '(rust-mode)
+  :ignore-messages '("m/publishDecorations")
+  :server-id 'rust-ra))
 
 (defun lsp-rust--set-configuration ()
   (lsp--set-configuration `(:rust ,lsp-rust--config-options)))
