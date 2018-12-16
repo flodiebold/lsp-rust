@@ -203,16 +203,12 @@ The explaination comes from 'rustc --explain=ID'."
 	        lsp-rust--action-handlers)
   (lsp-provide-marked-string-renderer client "rust" #'lsp-rust--render-string))
 
-;; (lsp-define-stdio-client lsp-rust "rust" #'lsp-rust--get-root nil
-;; 			 :command-fn #'lsp-rust--rls-command
-;; 			 :initialize #'lsp-rust--initialize-client)
-
 (lsp-register-client
  (make-lsp-client
   :new-connection (lsp-stdio-connection #'lsp-rust--rls-command)
   :notification-handlers (ht<-alist lsp-rust--handlers)
   :major-modes '(rust-mode toml-mode)
-  :server-id 'rust-rls))
+  :server-id 'rls))
 
 (lsp-register-client
  (make-lsp-client
@@ -221,7 +217,7 @@ The explaination comes from 'rustc --explain=ID'."
   :action-handlers (ht<-alist lsp-rust--ra-action-handlers)
   :major-modes '(rust-mode)
   :ignore-messages '("m/publishDecorations")
-  :server-id 'rust-ra))
+  :server-id 'rust-analyzer))
 
 (defun lsp-rust--set-configuration ()
   (lsp--set-configuration `(:rust ,lsp-rust--config-options)))
