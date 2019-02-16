@@ -167,7 +167,7 @@ The explaination comes from 'rustc --explain=ID'."
   '(("m/publishDecorations" . (lambda (_w _p)))))
 
 (defconst lsp-rust--ra-action-handlers
-  '(("ra-lsp.applySourceChange" .
+  '(("rust-analyzer.applySourceChange" .
      (lambda (p) (lsp-rust--handle-ra-lsp-apply-source-change p)))))
 
 (defun lsp-rust--apply-text-document-edit (edit)
@@ -184,7 +184,12 @@ The explaination comes from 'rustc --explain=ID'."
 (defun lsp-rust--handle-ra-lsp-apply-source-change (p)
   ;; TODO fileSystemEdits
   ;; TODO cursorPosition
-  (--each (ht-get (car (ht-get p "arguments")) "sourceFileEdits")
+  (message "handle-ra-lsp-apply-source-change %s" (json-encode p))
+  (--each (-> p
+              (ht-get "arguments")
+              (car)
+              (ht-get "workspaceEdit")
+              (ht-get "documentChanges"))
     (lsp-rust--apply-text-document-edit it)))
 
 (defun lsp-rust--render-string (str)
